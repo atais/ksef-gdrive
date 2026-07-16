@@ -8,5 +8,13 @@ export default defineConfig({
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     },
+    proxy: {
+      '/api/ksef': {
+        target: 'https://api.ksef.mf.gov.pl/v2',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/ksef/, ''),
+        secure: false,
+      },
+    },
   },
 })

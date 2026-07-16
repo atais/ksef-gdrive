@@ -107,8 +107,25 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
         </form>
 
         <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <p className="text-sm text-blue-600 dark:text-blue-400">
+          <p className="text-sm text-blue-600 dark:text-blue-400 mb-2">
             <strong>Note:</strong> Credentials stored encrypted in your Google Drive .config folder
+          </p>
+        </div>
+            
+        <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <p className="text-sm text-amber-800 dark:text-amber-400 mb-3">
+            <strong>How to generate token with InvoiceRead permission:</strong>
+          </p>
+          <ol className="text-sm text-amber-800 dark:text-amber-400 list-decimal list-inside space-y-2">
+            <li>Go to <a href="https://ksef.mf.gov.pl" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-900 dark:hover:text-amber-300">ksef.mf.gov.pl</a> and log in</li>
+            <li>Navigate to <strong>Ustawienia</strong> (Settings) → <strong>Tokeny autoryzacyjne</strong></li>
+            <li>Click <strong>Generuj nowy token</strong> (Generate new token)</li>
+            <li>Enter token name and <strong>IMPORTANT: Check "Odczyt faktur" (InvoiceRead) checkbox</strong></li>
+            <li>Click <strong>Generuj</strong> - token shown only once, copy immediately</li>
+            <li>Paste token here and save</li>
+          </ol>
+          <p className="text-sm text-amber-800 dark:text-amber-400 mt-3 font-semibold">
+            ⚠️ Without "Odczyt faktur" permission, token won't work for listing invoices
           </p>
         </div>
       </div>

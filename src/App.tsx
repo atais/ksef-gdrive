@@ -4,13 +4,17 @@ import axios from 'axios'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { KsefSetup } from './KsefSetup'
+import { Settings } from './Settings'
+import { InvoiceList } from './InvoiceList'
 import { 
   ensureKsefFolder, 
   listDriveFiles, 
   ensureConfigFolder,
   saveJsonToConfig,
-  fetchJsonFromConfig
+  fetchJsonFromConfig,
+  deleteJsonFromConfig
 } from './googleDriveService'
+import { authenticateWithKsef, queryInvoices, type KsefInvoice } from './ksefService'
 
 interface KsefCredentials {
   nip: string
@@ -35,6 +39,10 @@ function AppContent() {
   const [ksefCredentials, setKsefCredentials] = useState<KsefCredentials | null>(null)
   const [saving, setSaving] = useState(false)
   const [restoring, setRestoring] = useState(true)
+  const [ksefSessionToken, setKsefSessionToken] = useState<string | null>(null)
+  const [invoices, setInvoices] = useState<KsefInvoice[]>([])
+  const [loadingInvoices, setLoadingInvoices] = useState(false)
+  const [currentView, setCurrentView] = useState<'main' | 'settings'>('main')
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -184,6 +192,12 @@ function AppContent() {
       
       // Update stored session
       saveSession(accessToken, user, configFolderId, credentials)
+      
+      // Auth with KSEF immediately
+      await authenticateAndFetchInvoices(credentials)
+      
+      // Go back to main view
+      setCurrentView('main')
     } catch (error) {
       console.error('Save credentials failed:', error)
       throw error
@@ -191,6 +205,73 @@ function AppContent() {
       setSaving(false)
     }
   }
+
+  const authenticateAndFetchInvoices = async (credentials: KsefCredentials) => {
+    try {
+      setLoadingInvoices(true)
+      const authResponse = await authenticateWithKsef(credentials)
+      setKsefSessionToken(authResponse.authenticationToken.token)
+      
+      const result = await queryInvoices(authResponse.authenticationToken.token)
+      setInvoices(result.invoices)
+      setFolderStatus('Connected to Google Drive & KSEF')
+    } catch (error) {
+      console.error('KSEF auth/fetch failed:', error)
+      
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      
+      // Check if it's a permission error
+      if (errorMessage.includes('403') && errorMessage.includes('missing-permissions')) {
+        setFolderStatus('KSEF token missing InvoiceRead permission')
+        // Don't delete credentials - user needs to update token permissions
+      } else if (errorMessage.includes('401') || errorMessage.includes('KSEF auth failed')) {
+        // Authentication failed - invalid token
+        setFolderStatus('KSEF authentication failed - credentials removed')
+        
+        // Delete invalid credentials from GDrive
+        if (accessToken && configFolderId) {
+          try {
+            await deleteJsonFromConfig(accessToken, configFolderId, 'ksef_credentials.json')
+          } catch (deleteError) {
+            console.error('Failed to delete credentials:', deleteError)
+          }
+        }
+        
+        // Clear local state
+        setKsefCredentials(null)
+        setKsefSessionToken(null)
+        setInvoices([])
+        
+        // Update stored session
+        if (user && accessToken && configFolderId) {
+          saveSession(accessToken, user, configFolderId, null)
+        }
+      } else {
+        setFolderStatus('KSEF connection error - check configuration')
+      }
+    } finally {
+      setLoadingInvoices(false)
+    }
+  }
+
+  const refreshInvoices = async () => {
+    if (!ksefSessionToken) return
+    setLoadingInvoices(true)
+    try {
+      const result = await queryInvoices(ksefSessionToken)
+      setInvoices(result.invoices)
+    } catch (error) {
+      console.error('Refresh invoices failed:', error)
+    } finally {
+      setLoadingInvoices(false)
+    }
+  }
+
+  useEffect(() => {
+    if (ksefCredentials && !ksefSessionToken) {
+      authenticateAndFetchInvoices(ksefCredentials)
+    }
+  }, [ksefCredentials])
 
   return (
     <div className="w-full min-h-screen flex flex-col bg-white dark:bg-slate-950">
@@ -200,7 +281,11 @@ function AppContent() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
       />
       <div className="flex flex-1">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar 
+          isOpen={sidebarOpen} 
+          onClose={() => setSidebarOpen(false)}
+          onNavigate={(view) => setCurrentView(view as 'main' | 'settings')}
+        />
         <main className="flex-1 overflow-auto">
           <div className="max-w-6xl mx-auto w-full">
             {restoring ? (
@@ -238,6 +323,13 @@ function AppContent() {
                   </button>
                 </div>
               </div>
+            ) : currentView === 'settings' ? (
+              <Settings
+                currentCredentials={ksefCredentials}
+                onSave={handleSaveKsefCredentials}
+                onBack={() => setCurrentView('main')}
+                saving={saving}
+              />
             ) : !ksefCredentials ? (
               <KsefSetup onSave={handleSaveKsefCredentials} saving={saving} />
             ) : (
@@ -278,7 +370,25 @@ function AppContent() {
                         </>
                       )}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentView('settings')}
+                      className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-all"
+                    >
+                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      Settings
+                    </button>
                   </div>
+
+                  {/* KSEF Invoices Section */}
+                  <InvoiceList 
+                    invoices={invoices}
+                    loading={loadingInvoices}
+                    onRefresh={refreshInvoices}
+                  />
 
                   {/* Files Grid */}
                   {files.length > 0 && (

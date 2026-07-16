@@ -154,6 +154,17 @@ export async function saveJsonToConfig(
   }
 }
 
+export async function deleteJsonFromConfig(
+  accessToken: string,
+  configFolderId: string,
+  filename: string
+): Promise<void> {
+  const file = await searchFile(accessToken, filename, configFolderId)
+  if (file) {
+    await deleteFile(accessToken, file.id)
+  }
+}
+
 export async function fetchJsonFromConfig<T>(
   accessToken: string,
   configFolderId: string,
@@ -200,6 +211,19 @@ async function searchFile(accessToken: string, filename: string, parentId: strin
   } catch (error) {
     console.error('Search file error:', error)
     throw error
+  }
+}
+
+export async function deleteFile(accessToken: string, fileId: string): Promise<void> {
+  const response = await fetch(`${DRIVE_API}/files/${fileId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Drive API error: ${response.status}`)
   }
 }
 

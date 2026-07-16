@@ -1,9 +1,28 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google'
 import axios from 'axios'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
-import { ensureKsefFolder, listDriveFiles } from './googleDriveService'
+import { KsefSetup } from './KsefSetup'
+import { 
+  ensureKsefFolder, 
+  listDriveFiles, 
+  ensureConfigFolder,
+  saveJsonToConfig,
+  fetchJsonFromConfig
+} from './googleDriveService'
+
+interface KsefCredentials {
+  nip: string
+  token: string
+}
+
+interface StoredSession {
+  accessToken: string
+  user: { email: string; name: string }
+  configFolderId: string
+  ksefCredentials: KsefCredentials | null
+}
 
 function AppContent() {
   const [user, setUser] = useState<{ email: string; name: string } | null>(null)
@@ -12,6 +31,66 @@ function AppContent() {
   const [files, setFiles] = useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [configFolderId, setConfigFolderId] = useState<string | null>(null)
+  const [ksefCredentials, setKsefCredentials] = useState<KsefCredentials | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [restoring, setRestoring] = useState(true)
+
+  useEffect(() => {
+    const restoreSession = async () => {
+      try {
+        const stored = localStorage.getItem('gdrive_session')
+        if (!stored) {
+          setRestoring(false)
+          return
+        }
+
+        const session: StoredSession = JSON.parse(stored)
+        
+        // Verify token still valid
+        const response = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+        })
+
+        if (response.status === 200) {
+          setAccessToken(session.accessToken)
+          setUser(session.user)
+          setConfigFolderId(session.configFolderId)
+          setKsefCredentials(session.ksefCredentials)
+          
+          if (session.ksefCredentials) {
+            setFolderStatus('Connected to Google Drive & KSEF')
+          } else {
+            setFolderStatus('Connected to Google Drive - Configure KSEF')
+          }
+        } else {
+          localStorage.removeItem('gdrive_session')
+        }
+      } catch (error) {
+        console.error('Session restore failed:', error)
+        localStorage.removeItem('gdrive_session')
+      } finally {
+        setRestoring(false)
+      }
+    }
+
+    restoreSession()
+  }, [])
+
+  const saveSession = (
+    token: string,
+    userData: { email: string; name: string },
+    configId: string,
+    ksefCreds: KsefCredentials | null
+  ) => {
+    const session: StoredSession = {
+      accessToken: token,
+      user: userData,
+      configFolderId: configId,
+      ksefCredentials: ksefCreds,
+    }
+    localStorage.setItem('gdrive_session', JSON.stringify(session))
+  }
 
   const login = useGoogleLogin({
     onSuccess: async (codeResponse) => {
@@ -24,16 +103,38 @@ function AppContent() {
           headers: { Authorization: `Bearer ${codeResponse.access_token}` },
         })
 
-        setUser({
+        const userData = {
           email: userInfo.data.email,
           name: userInfo.data.name,
-        })
+        }
+        setUser(userData)
 
         // Initialize ksef-gdrive folder
         const result = await ensureKsefFolder(codeResponse.access_token)
         setFolderStatus(result.message)
 
         if (result.folderId) {
+          // Ensure .config folder exists
+          const configId = await ensureConfigFolder(codeResponse.access_token, result.folderId)
+          setConfigFolderId(configId)
+          
+          // Check for existing KSEF credentials
+          const credentials = await fetchJsonFromConfig<KsefCredentials>(
+            codeResponse.access_token,
+            configId,
+            'ksef_credentials.json'
+          )
+          setKsefCredentials(credentials)
+          
+          if (credentials) {
+            setFolderStatus('Connected to Google Drive & KSEF')
+          } else {
+            setFolderStatus('Connected to Google Drive - Configure KSEF')
+          }
+
+          // Save session to localStorage
+          saveSession(codeResponse.access_token, userData, configId, credentials)
+
           const filesList = await listDriveFiles(codeResponse.access_token, result.folderId)
           setFiles(filesList)
         }
@@ -60,10 +161,35 @@ function AppContent() {
   }
 
   const handleLogout = () => {
+    localStorage.removeItem('gdrive_session')
     setUser(null)
     setAccessToken(null)
     setFiles([])
     setFolderStatus('')
+    setConfigFolderId(null)
+    setKsefCredentials(null)
+  }
+
+  const handleSaveKsefCredentials = async (nip: string, token: string) => {
+    if (!accessToken || !configFolderId || !user) {
+      throw new Error('Not connected to Google Drive')
+    }
+
+    setSaving(true)
+    try {
+      const credentials: KsefCredentials = { nip, token }
+      await saveJsonToConfig(accessToken, configFolderId, 'ksef_credentials.json', credentials)
+      setKsefCredentials(credentials)
+      setFolderStatus('KSEF credentials saved successfully')
+      
+      // Update stored session
+      saveSession(accessToken, user, configFolderId, credentials)
+    } catch (error) {
+      console.error('Save credentials failed:', error)
+      throw error
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -77,7 +203,16 @@ function AppContent() {
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <main className="flex-1 overflow-auto">
           <div className="max-w-6xl mx-auto w-full">
-            {!user ? (
+            {restoring ? (
+              <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
+                <div className="text-center">
+                  <svg className="w-12 h-12 text-blue-600 dark:text-blue-400 animate-spin mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <p className="text-gray-600 dark:text-gray-400">Restoring session...</p>
+                </div>
+              </div>
+            ) : !user ? (
               <div className="min-h-[calc(100vh-64px)] flex items-center justify-center px-4 py-20">
                 <div className="text-center max-w-2xl">
                   <div className="mb-8">
@@ -103,6 +238,8 @@ function AppContent() {
                   </button>
                 </div>
               </div>
+            ) : !ksefCredentials ? (
+              <KsefSetup onSave={handleSaveKsefCredentials} saving={saving} />
             ) : (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
                 <div className="space-y-6">
@@ -112,6 +249,9 @@ function AppContent() {
                     <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
                       {folderStatus || 'All systems ready'}
                     </h2>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      KSEF NIP: {ksefCredentials.nip}
+                    </p>
                   </div>
 
                   {/* Action Buttons */}

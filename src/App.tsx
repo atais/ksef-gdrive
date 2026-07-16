@@ -1,121 +1,129 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google'
+import axios from 'axios'
 import './App.css'
+import { ensureKsefFolder, listDriveFiles } from './googleDriveService'
 
-function App() {
-  const [count, setCount] = useState(0)
+function AppContent() {
+  const [user, setUser] = useState<{ email: string; name: string } | null>(null)
+  const [accessToken, setAccessToken] = useState<string | null>(null)
+  const [folderStatus, setFolderStatus] = useState<string>('')
+  const [files, setFiles] = useState<Array<{ id: string; name: string }>>([])
+  const [loading, setLoading] = useState(false)
+
+  const login = useGoogleLogin({
+    onSuccess: async (codeResponse) => {
+      try {
+        setFolderStatus('Logging in...')
+        setAccessToken(codeResponse.access_token)
+
+        // Get user info
+        const userInfo = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${codeResponse.access_token}` },
+        })
+
+        setUser({
+          email: userInfo.data.email,
+          name: userInfo.data.name,
+        })
+
+        // Initialize ksef-gdrive folder
+        const result = await ensureKsefFolder(codeResponse.access_token)
+        setFolderStatus(result.message)
+
+        if (result.folderId) {
+          const filesList = await listDriveFiles(codeResponse.access_token, result.folderId)
+          setFiles(filesList)
+        }
+      } catch (error) {
+        console.error('Login/init failed:', error)
+        setFolderStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    },
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    flow: 'implicit',
+  })
+
+  const refreshFiles = async () => {
+    if (!accessToken) return
+    setLoading(true)
+    try {
+      const filesList = await listDriveFiles(accessToken)
+      setFiles(filesList)
+    } catch (error) {
+      console.error('Failed to refresh files:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <>
       <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+        {!user ? (
+          <div>
+            <h1>KSEF - Google Drive Integration</h1>
+            <p>Sign in with your Google account to get started</p>
+            <button
+              type="button"
+              className="counter"
+              onClick={() => login()}
+            >
+              Login with Google
+            </button>
+          </div>
+        ) : (
+          <div>
+            <h1>Welcome, {user.name}!</h1>
+            <p>Email: {user.email}</p>
+            <p className="status">{folderStatus}</p>
+
+            <button
+              type="button"
+              className="counter"
+              onClick={refreshFiles}
+              disabled={loading}
+            >
+              {loading ? 'Loading...' : 'Refresh Files'}
+            </button>
+
+            {files.length > 0 && (
+              <div className="files-list">
+                <h3>Files in ksef folder:</h3>
+                <ul>
+                  {files.map((file) => (
+                    <li key={file.id}>{file.name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="logout-btn"
+              onClick={() => {
+                setUser(null)
+                setAccessToken(null)
+                setFiles([])
+                setFolderStatus('')
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
     </>
+  )
+}
+
+function App() {
+  const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'YOUR_CLIENT_ID_HERE'
+
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AppContent />
+    </GoogleOAuthProvider>
   )
 }
 

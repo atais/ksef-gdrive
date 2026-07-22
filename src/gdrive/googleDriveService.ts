@@ -154,6 +154,24 @@ export async function saveJsonToConfig(
   }
 }
 
+// Saves an arbitrary text file (e.g. invoice XML) into the given Drive folder,
+// overwriting an existing file with the same name if present.
+export async function saveTextFileToFolder(
+  accessToken: string,
+  folderId: string,
+  filename: string,
+  content: string,
+  mimeType: string
+): Promise<void> {
+  const existing = await searchFile(accessToken, filename, folderId)
+
+  if (existing) {
+    await updateFile(accessToken, existing.id, content, mimeType)
+  } else {
+    await createFile(accessToken, filename, content, folderId, mimeType)
+  }
+}
+
 export async function deleteJsonFromConfig(
   accessToken: string,
   configFolderId: string,
@@ -227,7 +245,13 @@ export async function deleteFile(accessToken: string, fileId: string): Promise<v
   }
 }
 
-async function createFile(accessToken: string, filename: string, content: string, parentId: string): Promise<void> {
+async function createFile(
+  accessToken: string,
+  filename: string,
+  content: string,
+  parentId: string,
+  mimeType: string = 'application/json'
+): Promise<void> {
   const metadata = {
     name: filename,
     parents: [parentId],
@@ -242,7 +266,7 @@ async function createFile(accessToken: string, filename: string, content: string
     'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
     JSON.stringify(metadata) +
     delimiter +
-    'Content-Type: application/json\r\n\r\n' +
+    `Content-Type: ${mimeType}\r\n\r\n` +
     content +
     closeDelim
 
@@ -262,12 +286,17 @@ async function createFile(accessToken: string, filename: string, content: string
   }
 }
 
-async function updateFile(accessToken: string, fileId: string, content: string): Promise<void> {
+async function updateFile(
+  accessToken: string,
+  fileId: string,
+  content: string,
+  mimeType: string = 'application/json'
+): Promise<void> {
   const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
+      'Content-Type': mimeType,
     },
     body: content,
   })

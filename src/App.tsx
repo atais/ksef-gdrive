@@ -5,7 +5,8 @@ import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { KsefSetup } from './KsefSetup'
 import { Settings } from './Settings'
-import { InvoiceList } from './InvoiceList'
+import { EntityRolesStatus } from './EntityRolesStatus'
+import { Invoices } from './Invoices'
 import { 
   ensureKsefFolder, 
   listDriveFiles, 
@@ -13,13 +14,8 @@ import {
   saveJsonToConfig,
   fetchJsonFromConfig,
   deleteJsonFromConfig
-} from './googleDriveService'
-import { authenticateWithKsef, queryInvoices, type KsefInvoice } from './ksefService'
-
-interface KsefCredentials {
-  nip: string
-  token: string
-}
+} from './gdrive/googleDriveService'
+import { authenticateWithKsef, queryEntityRoles, type KsefCredentials, type KsefEntityRole } from './ksef/ksefService'
 
 interface StoredSession {
   accessToken: string
@@ -40,9 +36,10 @@ function AppContent() {
   const [saving, setSaving] = useState(false)
   const [restoring, setRestoring] = useState(true)
   const [ksefSessionToken, setKsefSessionToken] = useState<string | null>(null)
-  const [invoices, setInvoices] = useState<KsefInvoice[]>([])
-  const [loadingInvoices, setLoadingInvoices] = useState(false)
-  const [currentView, setCurrentView] = useState<'main' | 'settings'>('main')
+  const [entityRoles, setEntityRoles] = useState<KsefEntityRole[]>([])
+  const [loadingRoles, setLoadingRoles] = useState(false)
+  const [currentView, setCurrentView] = useState<'main' | 'settings' | 'invoices'>('main')
+  const [ksefFolderId, setKsefFolderId] = useState<string | null>(null)
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -65,7 +62,12 @@ function AppContent() {
           setUser(session.user)
           setConfigFolderId(session.configFolderId)
           setKsefCredentials(session.ksefCredentials)
-          
+
+          // Re-resolve the ksef-gdrive folder id (idempotent lookup) so features
+          // like saving invoices to Drive work after a session restore.
+          const folderResult = await ensureKsefFolder(session.accessToken)
+          setKsefFolderId(folderResult.folderId)
+
           if (session.ksefCredentials) {
             setFolderStatus('Connected to Google Drive & KSEF')
           } else {
@@ -120,6 +122,7 @@ function AppContent() {
         // Initialize ksef-gdrive folder
         const result = await ensureKsefFolder(codeResponse.access_token)
         setFolderStatus(result.message)
+        setKsefFolderId(result.folderId)
 
         if (result.folderId) {
           // Ensure .config folder exists
@@ -176,16 +179,16 @@ function AppContent() {
     setFolderStatus('')
     setConfigFolderId(null)
     setKsefCredentials(null)
+    setKsefFolderId(null)
   }
 
-  const handleSaveKsefCredentials = async (nip: string, token: string) => {
+  const handleSaveKsefCredentials = async (credentials: KsefCredentials) => {
     if (!accessToken || !configFolderId || !user) {
       throw new Error('Not connected to Google Drive')
     }
 
     setSaving(true)
     try {
-      const credentials: KsefCredentials = { nip, token }
       await saveJsonToConfig(accessToken, configFolderId, 'ksef_credentials.json', credentials)
       setKsefCredentials(credentials)
       setFolderStatus('KSEF credentials saved successfully')
@@ -194,7 +197,7 @@ function AppContent() {
       saveSession(accessToken, user, configFolderId, credentials)
       
       // Auth with KSEF immediately
-      await authenticateAndFetchInvoices(credentials)
+      await authenticateAndFetchRoles(credentials)
       
       // Go back to main view
       setCurrentView('main')
@@ -206,14 +209,14 @@ function AppContent() {
     }
   }
 
-  const authenticateAndFetchInvoices = async (credentials: KsefCredentials) => {
+  const authenticateAndFetchRoles = async (credentials: KsefCredentials) => {
     try {
-      setLoadingInvoices(true)
+      setLoadingRoles(true)
       const authResponse = await authenticateWithKsef(credentials)
-      setKsefSessionToken(authResponse.authenticationToken.token)
+      setKsefSessionToken(authResponse.accessToken.token)
       
-      const result = await queryInvoices(authResponse.authenticationToken.token)
-      setInvoices(result.invoices)
+      const result = await queryEntityRoles(authResponse.accessToken.token)
+      setEntityRoles(result.roles)
       setFolderStatus('Connected to Google Drive & KSEF')
     } catch (error) {
       console.error('KSEF auth/fetch failed:', error)
@@ -222,10 +225,10 @@ function AppContent() {
       
       // Check if it's a permission error
       if (errorMessage.includes('403') && errorMessage.includes('missing-permissions')) {
-        setFolderStatus('KSEF token missing InvoiceRead permission')
-        // Don't delete credentials - user needs to update token permissions
+        setFolderStatus('KSEF credentials missing required permission')
+        // Don't delete credentials - user needs to update permissions
       } else if (errorMessage.includes('401') || errorMessage.includes('KSEF auth failed')) {
-        // Authentication failed - invalid token
+        // Authentication failed - invalid credentials
         setFolderStatus('KSEF authentication failed - credentials removed')
         
         // Delete invalid credentials from GDrive
@@ -240,7 +243,7 @@ function AppContent() {
         // Clear local state
         setKsefCredentials(null)
         setKsefSessionToken(null)
-        setInvoices([])
+        setEntityRoles([])
         
         // Update stored session
         if (user && accessToken && configFolderId) {
@@ -250,26 +253,26 @@ function AppContent() {
         setFolderStatus('KSEF connection error - check configuration')
       }
     } finally {
-      setLoadingInvoices(false)
+      setLoadingRoles(false)
     }
   }
 
-  const refreshInvoices = async () => {
+  const refreshRoles = async () => {
     if (!ksefSessionToken) return
-    setLoadingInvoices(true)
+    setLoadingRoles(true)
     try {
-      const result = await queryInvoices(ksefSessionToken)
-      setInvoices(result.invoices)
+      const result = await queryEntityRoles(ksefSessionToken)
+      setEntityRoles(result.roles)
     } catch (error) {
-      console.error('Refresh invoices failed:', error)
+      console.error('Refresh roles failed:', error)
     } finally {
-      setLoadingInvoices(false)
+      setLoadingRoles(false)
     }
   }
 
   useEffect(() => {
     if (ksefCredentials && !ksefSessionToken) {
-      authenticateAndFetchInvoices(ksefCredentials)
+      authenticateAndFetchRoles(ksefCredentials)
     }
   }, [ksefCredentials])
 
@@ -332,6 +335,18 @@ function AppContent() {
               />
             ) : !ksefCredentials ? (
               <KsefSetup onSave={handleSaveKsefCredentials} saving={saving} />
+            ) : currentView === 'invoices' ? (
+              <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
+                {ksefSessionToken ? (
+                  <Invoices
+                    sessionToken={ksefSessionToken}
+                    accessToken={accessToken}
+                    driveFolderId={ksefFolderId}
+                  />
+                ) : (
+                  <p className="text-gray-600 dark:text-gray-400">Connecting to KSEF...</p>
+                )}
+              </div>
             ) : (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
                 <div className="space-y-6">
@@ -383,11 +398,11 @@ function AppContent() {
                     </button>
                   </div>
 
-                  {/* KSEF Invoices Section */}
-                  <InvoiceList 
-                    invoices={invoices}
-                    loading={loadingInvoices}
-                    onRefresh={refreshInvoices}
+                  {/* KSEF Entity Roles Section */}
+                  <EntityRolesStatus 
+                    roles={entityRoles}
+                    loading={loadingRoles}
+                    onRefresh={refreshRoles}
                   />
 
                   {/* Files Grid */}

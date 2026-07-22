@@ -12,14 +12,16 @@
   "dependencies": {
     "@react-oauth/google": "^0.13.5",
     "axios": "^1.18.1",
-    "jwt-decode": "^4.0.0",
+    "node-forge": "^1.4.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "xadesjs": "^2.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.13.2",
+    "@types/node-forge": "^1.3.14",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

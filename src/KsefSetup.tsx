@@ -1,31 +1,43 @@
 import { useState } from 'react'
+import type { KsefCredentials } from './ksef/ksefService'
 
 interface KsefSetupProps {
-  onSave: (nip: string, token: string) => Promise<void>
+  onSave: (credentials: KsefCredentials) => Promise<void>
   saving: boolean
 }
 
 export function KsefSetup({ onSave, saving }: KsefSetupProps) {
   const [nip, setNip] = useState('')
-  const [token, setToken] = useState('')
+  const [certPem, setCertPem] = useState('')
+  const [keyPem, setKeyPem] = useState('')
+  const [keyPassword, setKeyPassword] = useState('')
   const [error, setError] = useState('')
+
+  const readFileAsText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(file)
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
-    if (!nip || !token) {
-      setError('Fill all fields')
-      return
-    }
-
-    if (!/^\d{10}$/.test(nip)) {
+    if (!nip || !/^\d{10}$/.test(nip)) {
       setError('NIP must be 10 digits')
       return
     }
 
+    if (!certPem || !keyPem) {
+      setError('Upload both the certificate (.crt) and the private key (.key)')
+      return
+    }
+
     try {
-      await onSave(nip, token)
+      await onSave({ method: 'certificate', nip, certPem, keyPem, keyPassword })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
     }
@@ -39,15 +51,7 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
             KSEF Configuration
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Connect to Polish KSEF system. Generate token at{' '}
-            <a
-              href="https://ap.ksef.mf.gov.pl/web/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              ap.ksef.mf.gov.pl
-            </a>
+            Connect to Polish KSEF system using a qualified certificate.
           </p>
         </div>
 
@@ -68,16 +72,52 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
           </div>
 
           <div>
-            <label htmlFor="token" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
-              KSEF Token
+            <label htmlFor="cert" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              Certificate (.crt / .pem)
             </label>
-            <textarea
-              id="token"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Paste your KSEF token here"
-              rows={4}
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 font-mono text-sm"
+            <input
+              id="cert"
+              type="file"
+              accept=".crt,.pem,.cer"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (file) setCertPem(await readFileAsText(file))
+              }}
+              className="w-full text-sm text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              disabled={saving}
+            />
+            {certPem && <p className="text-sm text-green-600 dark:text-green-400 mt-2">Certificate loaded</p>}
+          </div>
+
+          <div>
+            <label htmlFor="key" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              Private Key (.key)
+            </label>
+            <input
+              id="key"
+              type="file"
+              accept=".key,.pem"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (file) setKeyPem(await readFileAsText(file))
+              }}
+              className="w-full text-sm text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              disabled={saving}
+            />
+            {keyPem && <p className="text-sm text-green-600 dark:text-green-400 mt-2">Private key loaded</p>}
+          </div>
+
+          <div>
+            <label htmlFor="keyPassword" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              Private Key Password
+            </label>
+            <input
+              id="keyPassword"
+              type="password"
+              value={keyPassword}
+              onChange={(e) => setKeyPassword(e.target.value)}
+              placeholder="Password protecting the private key"
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
               disabled={saving}
             />
           </div>
@@ -107,25 +147,19 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
         </form>
 
         <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <p className="text-sm text-blue-600 dark:text-blue-400 mb-2">
-            <strong>Note:</strong> Credentials stored encrypted in your Google Drive .config folder
+          <p className="text-sm text-blue-600 dark:text-blue-400">
+            <strong>Note:</strong> Credentials are stored in your Google Drive .config folder.
+            The private key is only used client-side in your browser to sign the KSEF
+            authentication request - it is never sent to any server except KSEF itself
+            embedded in the signed XML.
           </p>
         </div>
-            
+
         <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-          <p className="text-sm text-amber-800 dark:text-amber-400 mb-3">
-            <strong>How to generate token with InvoiceRead permission:</strong>
-          </p>
-          <ol className="text-sm text-amber-800 dark:text-amber-400 list-decimal list-inside space-y-2">
-            <li>Go to <a href="https://ksef.mf.gov.pl" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-900 dark:hover:text-amber-300">ksef.mf.gov.pl</a> and log in</li>
-            <li>Navigate to <strong>Ustawienia</strong> (Settings) → <strong>Tokeny autoryzacyjne</strong></li>
-            <li>Click <strong>Generuj nowy token</strong> (Generate new token)</li>
-            <li>Enter token name and <strong>IMPORTANT: Check "Odczyt faktur" (InvoiceRead) checkbox</strong></li>
-            <li>Click <strong>Generuj</strong> - token shown only once, copy immediately</li>
-            <li>Paste token here and save</li>
-          </ol>
-          <p className="text-sm text-amber-800 dark:text-amber-400 mt-3 font-semibold">
-            ⚠️ Without "Odczyt faktur" permission, token won't work for listing invoices
+          <p className="text-sm text-amber-800 dark:text-amber-400">
+            <strong>Certificate requirements:</strong> a qualified certificate (personal or
+            company seal) or a KSEF certificate whose subject contains your NIP or PESEL,
+            with an RSA private key. Only RSA keys are currently supported.
           </p>
         </div>
       </div>

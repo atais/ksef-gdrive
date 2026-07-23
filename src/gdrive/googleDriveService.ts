@@ -207,8 +207,15 @@ async function ensureFolder(accessToken: string, name: string, parentId?: string
   }
 }
 
+// Category subfolders created inside every month folder. Sales invoices go to
+// _Sprzedaz, cost invoices to _Koszty, bank statements to Wyciagi.
+export const MONTH_CATEGORY_FOLDERS = ['_Sprzedaz', '_Koszty', 'Wyciagi'] as const
+
+export type InvoiceCategoryFolder = '_Sprzedaz' | '_Koszty'
+
 // Ensures <yyyy>/01.<yyyy> .. 12.<yyyy> all exist under ksef root for given
-// date's year (defaults to now).
+// date's year (defaults to now), plus the category subfolders (_Sprzedaz,
+// _Koszty, Wyciagi) inside each month.
 export async function ensureYearFolders(
   accessToken: string,
   ksefFolderId: string,
@@ -222,7 +229,28 @@ export async function ensureYearFolders(
     months.map((month) => ensureFolder(accessToken, `${month}.${year}`, yearFolder.id))
   )
 
+  await Promise.all(
+    monthFolders.flatMap((monthFolder) =>
+      MONTH_CATEGORY_FOLDERS.map((name) => ensureFolder(accessToken, name, monthFolder.id))
+    )
+  )
+
   return { yearId: yearFolder.id, monthIds: monthFolders.map((f) => f.id) }
+}
+
+// Resolves (creating if missing) a specific month's category subfolder, e.g.
+// ksef/2026/03.2026/_Koszty, and returns its folder id.
+export async function ensureMonthCategoryFolder(
+  accessToken: string,
+  ksefFolderId: string,
+  year: string,
+  month: string,
+  category: InvoiceCategoryFolder
+): Promise<string> {
+  const yearFolder = await ensureFolder(accessToken, year, ksefFolderId)
+  const monthFolder = await ensureFolder(accessToken, `${month}.${year}`, yearFolder.id)
+  const categoryFolder = await ensureFolder(accessToken, category, monthFolder.id)
+  return categoryFolder.id
 }
 
 export interface MonthFolder {
@@ -274,6 +302,54 @@ export async function listYearMonthTree(accessToken: string, ksefFolderId: strin
   )
 
   return years.sort((a, b) => b.name.localeCompare(a.name))
+}
+
+async function listFilesOnly(accessToken: string, parentId: string): Promise<DriveFile[]> {
+  const query = `'${parentId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed=false`
+  const encodedQuery = encodeURIComponent(query)
+  const response = await fetch(`${DRIVE_API}/files?q=${encodedQuery}&spaces=drive&fields=files(id,name)&pageSize=1000`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Drive API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.files || []
+}
+
+export interface CategorySection {
+  key: string
+  title: string
+  files: DriveFile[]
+}
+
+const CATEGORY_TITLES: Record<string, string> = {
+  _Sprzedaz: 'Sprzedaż',
+  _Koszty: 'Koszty',
+  Wyciagi: 'Wyciągi',
+}
+
+// Lists the files inside each category subfolder of a month folder, returned in
+// display order (Sprzedaz, Koszty, Wyciagi). Missing subfolders yield an empty
+// section rather than being dropped.
+export async function listMonthCategories(
+  accessToken: string,
+  monthFolderId: string
+): Promise<CategorySection[]> {
+  const subfolders = await listSubfolders(accessToken, monthFolderId)
+  const byName = new Map(subfolders.map((f) => [f.name, f]))
+
+  return Promise.all(
+    MONTH_CATEGORY_FOLDERS.map(async (name) => {
+      const folder = byName.get(name)
+      const files = folder ? await listFilesOnly(accessToken, folder.id) : []
+      return { key: name, title: CATEGORY_TITLES[name] ?? name, files }
+    })
+  )
 }
 
 export async function saveJsonToConfig(

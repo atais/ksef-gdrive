@@ -8,12 +8,13 @@ import { KsefCredentialsForm } from './KsefCredentialsForm'
 import { Invoices } from './Invoices'
 import {
   ensureKsefFolder,
-  listDriveFiles,
   ensureConfigFolder,
   saveJsonToConfig,
   fetchJsonFromConfig,
   deleteJsonFromConfig,
-  ensureYearFolders
+  ensureYearFolders,
+  listMonthCategories,
+  type CategorySection
 } from './gdrive/googleDriveService'
 import { authenticateWithKsef, type KsefCredentials } from './ksef/ksefService'
 
@@ -27,7 +28,6 @@ interface StoredSession {
 function AppContent() {
   const [user, setUser] = useState<{ email: string; name: string } | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  const [files, setFiles] = useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [configFolderId, setConfigFolderId] = useState<string | null>(null)
@@ -38,6 +38,7 @@ function AppContent() {
   const [currentView, setCurrentView] = useState<'settings' | 'invoices' | 'files'>('invoices')
   const [ksefFolderId, setKsefFolderId] = useState<string | null>(null)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const [categorySections, setCategorySections] = useState<CategorySection[]>([])
   const [driveSyncCount, setDriveSyncCount] = useState(0)
 
   // Runs a Drive task in the background without blocking the caller, while
@@ -152,9 +153,6 @@ function AppContent() {
 
           // Save session to localStorage
           saveSession(codeResponse.access_token, userData, configId, credentials)
-
-          const filesList = await listDriveFiles(codeResponse.access_token, result.folderId)
-          setFiles(filesList)
         }
       } catch (error) {
         console.error('Login/init failed:', error)
@@ -165,25 +163,25 @@ function AppContent() {
   })
 
   const refreshFiles = useCallback(async () => {
-    if (!accessToken) return
+    if (!accessToken || !selectedFolderId) return
     setLoading(true)
     try {
-      const filesList = await listDriveFiles(accessToken, selectedFolderId ?? ksefFolderId ?? undefined)
-      setFiles(filesList)
+      const sections = await listMonthCategories(accessToken, selectedFolderId)
+      setCategorySections(sections)
     } catch (error) {
       console.error('Failed to refresh files:', error)
     } finally {
       setLoading(false)
     }
-  }, [accessToken, selectedFolderId, ksefFolderId])
+  }, [accessToken, selectedFolderId])
 
   useEffect(() => {
     if (currentView !== 'files' || !selectedFolderId || !accessToken) return
 
     let cancelled = false
-    listDriveFiles(accessToken, selectedFolderId)
-      .then((filesList) => {
-        if (!cancelled) setFiles(filesList)
+    listMonthCategories(accessToken, selectedFolderId)
+      .then((sections) => {
+        if (!cancelled) setCategorySections(sections)
       })
       .catch((error) => console.error('Failed to refresh files:', error))
       .finally(() => {
@@ -200,7 +198,7 @@ function AppContent() {
     localStorage.removeItem('gdrive_session')
     setUser(null)
     setAccessToken(null)
-    setFiles([])
+    setCategorySections([])
     setConfigFolderId(null)
     setKsefCredentials(null)
     setKsefFolderId(null)
@@ -378,32 +376,43 @@ function AppContent() {
                     </button>
                   </div>
 
-                  {files.length > 0 ? (
-                    <div className="bg-white rounded-xl border border-gray-200 p-8">
-                      <h3 className="text-2xl font-bold text-gray-900 mb-6">
-                        Files in ksef folder
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {files.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-400 transition-all hover:shadow-md"
-                          >
-                            <DocumentTextIcon className="w-6 h-6 text-blue-600 flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 truncate">
-                                {file.name}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
+                  {!selectedFolderId ? (
                     <div className="text-center py-12">
                       <DocumentTextIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-600 font-medium">No files yet</p>
-                      <p className="text-gray-500 text-sm">Click "Refresh Files" to load files from your Google Drive</p>
+                      <p className="text-gray-600 font-medium">Pick a month</p>
+                      <p className="text-gray-500 text-sm">Select a month in the sidebar to see its files</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {categorySections.map((section) => (
+                        <div
+                          key={section.key}
+                          className="bg-white rounded-xl border border-gray-200 p-8"
+                        >
+                          <h3 className="text-2xl font-bold text-gray-900 mb-6">
+                            {section.title}
+                          </h3>
+                          {section.files.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              {section.files.map((file) => (
+                                <div
+                                  key={file.id}
+                                  className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-400 transition-all hover:shadow-md"
+                                >
+                                  <DocumentTextIcon className="w-6 h-6 text-blue-600 flex-shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">
+                                      {file.name}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-400">No files</p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -415,7 +424,8 @@ function AppContent() {
                     <Invoices
                       sessionToken={ksefSessionToken}
                       accessToken={accessToken}
-                      driveFolderId={ksefFolderId}
+                      ksefFolderId={ksefFolderId}
+                      userNip={ksefCredentials.nip}
                     />
                   ) : (
                     <p className="text-gray-600">Connecting to KSEF...</p>

@@ -12,8 +12,8 @@ interface HeaderProps {
 
 export function Header({ user, onLogout, onToggleSidebar, isConnected, driveSyncing, currentView, onNavigate }: HeaderProps) {
   const navItems = [
-    { id: 'files', label: 'Files', icon: DocumentTextIcon },
-    { id: 'invoices', label: 'Invoices', icon: AdjustmentsHorizontalIcon },
+    { id: 'invoices', label: 'KSEF', icon: AdjustmentsHorizontalIcon },
+    { id: 'files', label: 'Google Drive', icon: DocumentTextIcon },
     { id: 'settings', label: 'Settings', icon: Cog6ToothIcon },
   ]
 

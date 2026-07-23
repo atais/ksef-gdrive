@@ -4,11 +4,10 @@ import type { KsefCredentials } from './ksef/ksefService'
 interface SettingsProps {
   currentCredentials: KsefCredentials | null
   onSave: (credentials: KsefCredentials) => Promise<void>
-  onBack: () => void
   saving: boolean
 }
 
-export function Settings({ currentCredentials, onSave, onBack, saving }: SettingsProps) {
+export function Settings({ currentCredentials, onSave, saving }: SettingsProps) {
   const [nip, setNip] = useState(currentCredentials?.nip || '')
   const [certPem, setCertPem] = useState('')
   const [keyPem, setKeyPem] = useState('')
@@ -52,32 +51,20 @@ export function Settings({ currentCredentials, onSave, onBack, saving }: Setting
   return (
     <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
       <div className="max-w-2xl mx-auto">
-        <div className="mb-6 flex items-center gap-4">
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back
-          </button>
-        </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-8">
+        <div className="bg-white rounded-xl border border-gray-200 p-8">
           <div className="mb-6">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">
               KSEF Settings
             </h2>
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-gray-600">
               Update your KSEF certificate connection details.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="nip" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              <label htmlFor="nip" className="block text-sm font-semibold text-gray-900 mb-2">
                 NIP
               </label>
               <input
@@ -86,13 +73,13 @@ export function Settings({ currentCredentials, onSave, onBack, saving }: Setting
                 value={nip}
                 onChange={(e) => setNip(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 placeholder="1234567890"
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
                 disabled={saving}
               />
             </div>
 
             <div>
-              <label htmlFor="cert" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              <label htmlFor="cert" className="block text-sm font-semibold text-gray-900 mb-2">
                 Certificate (.crt / .pem)
               </label>
               <input
@@ -103,18 +90,18 @@ export function Settings({ currentCredentials, onSave, onBack, saving }: Setting
                   const file = e.target.files?.[0]
                   if (file) setCertPem(await readFileAsText(file))
                 }}
-                className="w-full text-sm text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                className="w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
                 disabled={saving}
               />
               {certPem ? (
-                <p className="text-sm text-green-600 dark:text-green-400 mt-2">New certificate loaded</p>
+                <p className="text-sm text-green-600 mt-2">New certificate loaded</p>
               ) : currentCredentials ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Current certificate is saved. Upload a new one to replace it.</p>
+                <p className="text-sm text-gray-500 mt-2">Current certificate is saved. Upload a new one to replace it.</p>
               ) : null}
             </div>
 
             <div>
-              <label htmlFor="key" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              <label htmlFor="key" className="block text-sm font-semibold text-gray-900 mb-2">
                 Private Key (.key)
               </label>
               <input
@@ -125,18 +112,18 @@ export function Settings({ currentCredentials, onSave, onBack, saving }: Setting
                   const file = e.target.files?.[0]
                   if (file) setKeyPem(await readFileAsText(file))
                 }}
-                className="w-full text-sm text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                className="w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
                 disabled={saving}
               />
               {keyPem ? (
-                <p className="text-sm text-green-600 dark:text-green-400 mt-2">New private key loaded</p>
+                <p className="text-sm text-green-600 mt-2">New private key loaded</p>
               ) : currentCredentials ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Current private key is saved. Upload a new one to replace it.</p>
+                <p className="text-sm text-gray-500 mt-2">Current private key is saved. Upload a new one to replace it.</p>
               ) : null}
             </div>
 
             <div>
-              <label htmlFor="keyPassword" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+              <label htmlFor="keyPassword" className="block text-sm font-semibold text-gray-900 mb-2">
                 Private Key Password
               </label>
               <input
@@ -145,14 +132,14 @@ export function Settings({ currentCredentials, onSave, onBack, saving }: Setting
                 value={keyPassword}
                 onChange={(e) => setKeyPassword(e.target.value)}
                 placeholder="Leave empty to keep current password"
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
                 disabled={saving}
               />
             </div>
 
             {error && (
-              <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{error}</p>
               </div>
             )}
 
@@ -176,8 +163,8 @@ export function Settings({ currentCredentials, onSave, onBack, saving }: Setting
             </div>
           </form>
 
-          <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <p className="text-sm text-blue-600 dark:text-blue-400">
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-600">
               <strong>Note:</strong> The private key is only used client-side in your browser
               to sign the KSEF authentication request. Only RSA keys are currently supported.
             </p>

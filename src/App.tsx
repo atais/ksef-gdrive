@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google'
 import axios from 'axios'
 import { Header } from './Header'
@@ -38,7 +38,7 @@ function AppContent() {
   const [ksefSessionToken, setKsefSessionToken] = useState<string | null>(null)
   const [entityRoles, setEntityRoles] = useState<KsefEntityRole[]>([])
   const [loadingRoles, setLoadingRoles] = useState(false)
-  const [currentView, setCurrentView] = useState<'main' | 'settings' | 'invoices'>('main')
+  const [currentView, setCurrentView] = useState<'main' | 'settings' | 'invoices' | 'files'>('main')
   const [ksefFolderId, setKsefFolderId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -209,7 +209,7 @@ function AppContent() {
     }
   }
 
-  const authenticateAndFetchRoles = async (credentials: KsefCredentials) => {
+  const authenticateAndFetchRoles = useCallback(async (credentials: KsefCredentials) => {
     try {
       setLoadingRoles(true)
       const authResponse = await authenticateWithKsef(credentials)
@@ -255,7 +255,7 @@ function AppContent() {
     } finally {
       setLoadingRoles(false)
     }
-  }
+  }, [accessToken, configFolderId, user])
 
   const refreshRoles = async () => {
     if (!ksefSessionToken) return
@@ -274,30 +274,34 @@ function AppContent() {
     if (ksefCredentials && !ksefSessionToken) {
       authenticateAndFetchRoles(ksefCredentials)
     }
-  }, [ksefCredentials])
+  }, [ksefCredentials, ksefSessionToken, authenticateAndFetchRoles])
 
   return (
-    <div className="w-full min-h-screen flex flex-col bg-white dark:bg-slate-950">
-      <Header
-        user={user}
-        onLogout={handleLogout}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-      />
-      <div className="flex flex-1">
-        <Sidebar 
-          isOpen={sidebarOpen} 
-          onClose={() => setSidebarOpen(false)}
-          onNavigate={(view) => setCurrentView(view as 'main' | 'settings')}
+    <div className="w-full min-h-screen flex flex-col bg-white">
+      {user && (
+        <Header
+          user={user}
+          onLogout={handleLogout}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
+      )}
+      <div className="flex flex-1">
+        {user && (
+          <Sidebar 
+            isOpen={sidebarOpen} 
+            onClose={() => setSidebarOpen(false)}
+            onNavigate={(view) => setCurrentView(view as 'main' | 'settings' | 'invoices' | 'files')}
+          />
+        )}
         <main className="flex-1 overflow-auto">
           <div className="max-w-6xl mx-auto w-full">
             {restoring ? (
               <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
                 <div className="text-center">
-                  <svg className="w-12 h-12 text-blue-600 dark:text-blue-400 animate-spin mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  <p className="text-gray-600 dark:text-gray-400">Restoring session...</p>
+                  <p className="text-gray-600">Restoring session...</p>
                 </div>
               </div>
             ) : !user ? (
@@ -307,13 +311,13 @@ function AppContent() {
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center mx-auto mb-6">
                       <span className="text-white font-bold text-4xl">K</span>
                     </div>
-                    <h1 className="text-5xl sm:text-6xl font-bold text-gray-900 dark:text-white mb-4 tracking-tight">
+                    <h1 className="text-5xl sm:text-6xl font-bold text-gray-900 mb-4 tracking-tight">
                       KSEF
                     </h1>
-                    <p className="text-xl text-gray-600 dark:text-gray-300 mb-2">
+                    <p className="text-xl text-gray-600 mb-2">
                       Google Drive Integration
                     </p>
-                    <p className="text-gray-500 dark:text-gray-400">
+                    <p className="text-gray-500">
                       Seamlessly manage your documents and files
                     </p>
                   </div>
@@ -330,7 +334,6 @@ function AppContent() {
               <Settings
                 currentCredentials={ksefCredentials}
                 onSave={handleSaveKsefCredentials}
-                onBack={() => setCurrentView('main')}
                 saving={saving}
               />
             ) : !ksefCredentials ? (
@@ -344,30 +347,19 @@ function AppContent() {
                     driveFolderId={ksefFolderId}
                   />
                 ) : (
-                  <p className="text-gray-600 dark:text-gray-400">Connecting to KSEF...</p>
+                  <p className="text-gray-600">Connecting to KSEF...</p>
                 )}
               </div>
-            ) : (
+            ) : currentView === 'files' ? (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
                 <div className="space-y-6">
-                  {/* Status Card */}
-                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 rounded-xl border border-blue-200 dark:border-blue-800 p-8">
-                    <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2">STATUS</p>
-                    <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {folderStatus || 'All systems ready'}
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                      KSEF NIP: {ksefCredentials.nip}
-                    </p>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <h2 className="text-3xl font-bold text-gray-900">Files</h2>
                     <button
                       type="button"
                       onClick={refreshFiles}
                       disabled={loading}
-                      className="flex-1 inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 rounded-lg transition-all hover:shadow-lg hover:shadow-blue-600/30"
+                      className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 rounded-lg transition-all hover:shadow-lg hover:shadow-blue-600/30"
                     >
                       {loading ? (
                         <>
@@ -385,17 +377,54 @@ function AppContent() {
                         </>
                       )}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentView('settings')}
-                      className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-all"
-                    >
-                      <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </div>
+
+                  {files.length > 0 ? (
+                    <div className="bg-white rounded-xl border border-gray-200 p-8">
+                      <h3 className="text-2xl font-bold text-gray-900 mb-6">
+                        Files in ksef folder
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {files.map((file) => (
+                          <div
+                            key={file.id}
+                            className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-400 transition-all hover:shadow-md"
+                          >
+                            <svg className="w-6 h-6 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {file.name}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      Settings
-                    </button>
+                      <p className="text-gray-600 font-medium">No files yet</p>
+                      <p className="text-gray-500 text-sm">Click "Refresh Files" to load files from your Google Drive</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
+                <div className="space-y-6">
+                  {/* Status Card */}
+                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl border border-blue-200 p-8">
+                    <p className="text-sm font-semibold text-blue-600 mb-2">STATUS</p>
+                    <h2 className="text-3xl font-bold text-gray-900">
+                      {folderStatus || 'All systems ready'}
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-2">
+                      KSEF NIP: {ksefCredentials.nip}
+                    </p>
                   </div>
 
                   {/* KSEF Entity Roles Section */}
@@ -404,42 +433,6 @@ function AppContent() {
                     loading={loadingRoles}
                     onRefresh={refreshRoles}
                   />
-
-                  {/* Files Grid */}
-                  {files.length > 0 && (
-                    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-8">
-                      <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-                        Files in ksef folder
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {files.map((file) => (
-                          <div
-                            key={file.id}
-                            className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600 transition-all hover:shadow-md"
-                          >
-                            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                {file.name}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {files.length === 0 && !loading && (
-                    <div className="text-center py-12">
-                      <svg className="w-16 h-16 text-gray-400 dark:text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <p className="text-gray-600 dark:text-gray-400 font-medium">No files yet</p>
-                      <p className="text-gray-500 dark:text-gray-500 text-sm">Click "Refresh Files" to load files from your Google Drive</p>
-                    </div>
-                  )}
                 </div>
               </div>
             )}

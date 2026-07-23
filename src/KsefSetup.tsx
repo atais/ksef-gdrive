@@ -45,19 +45,19 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
 
   return (
     <div className="max-w-2xl mx-auto p-4 sm:p-8">
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-8">
+      <div className="bg-white rounded-xl border border-gray-200 p-8">
         <div className="mb-6">
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">
             KSEF Configuration
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-gray-600">
             Connect to Polish KSEF system using a qualified certificate.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="nip" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+            <label htmlFor="nip" className="block text-sm font-semibold text-gray-900 mb-2">
               NIP
             </label>
             <input
@@ -66,13 +66,13 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
               value={nip}
               onChange={(e) => setNip(e.target.value.replace(/\D/g, '').slice(0, 10))}
               placeholder="1234567890"
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
               disabled={saving}
             />
           </div>
 
           <div>
-            <label htmlFor="cert" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+            <label htmlFor="cert" className="block text-sm font-semibold text-gray-900 mb-2">
               Certificate (.crt / .pem)
             </label>
             <input
@@ -83,14 +83,14 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
                 const file = e.target.files?.[0]
                 if (file) setCertPem(await readFileAsText(file))
               }}
-              className="w-full text-sm text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              className="w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
               disabled={saving}
             />
-            {certPem && <p className="text-sm text-green-600 dark:text-green-400 mt-2">Certificate loaded</p>}
+            {certPem && <p className="text-sm text-green-600 mt-2">Certificate loaded</p>}
           </div>
 
           <div>
-            <label htmlFor="key" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+            <label htmlFor="key" className="block text-sm font-semibold text-gray-900 mb-2">
               Private Key (.key)
             </label>
             <input
@@ -101,14 +101,14 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
                 const file = e.target.files?.[0]
                 if (file) setKeyPem(await readFileAsText(file))
               }}
-              className="w-full text-sm text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              className="w-full text-sm text-gray-900 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
               disabled={saving}
             />
-            {keyPem && <p className="text-sm text-green-600 dark:text-green-400 mt-2">Private key loaded</p>}
+            {keyPem && <p className="text-sm text-green-600 mt-2">Private key loaded</p>}
           </div>
 
           <div>
-            <label htmlFor="keyPassword" className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+            <label htmlFor="keyPassword" className="block text-sm font-semibold text-gray-900 mb-2">
               Private Key Password
             </label>
             <input
@@ -117,14 +117,14 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
               value={keyPassword}
               onChange={(e) => setKeyPassword(e.target.value)}
               placeholder="Password protecting the private key"
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
               disabled={saving}
             />
           </div>
 
           {error && (
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-600">{error}</p>
             </div>
           )}
 
@@ -146,8 +146,8 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
           </button>
         </form>
 
-        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <p className="text-sm text-blue-600 dark:text-blue-400">
+        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-600">
             <strong>Note:</strong> Credentials are stored in your Google Drive .config folder.
             The private key is only used client-side in your browser to sign the KSEF
             authentication request - it is never sent to any server except KSEF itself
@@ -155,8 +155,8 @@ export function KsefSetup({ onSave, saving }: KsefSetupProps) {
           </p>
         </div>
 
-        <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-          <p className="text-sm text-amber-800 dark:text-amber-400">
+        <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <p className="text-sm text-amber-800">
             <strong>Certificate requirements:</strong> a qualified certificate (personal or
             company seal) or a KSEF certificate whose subject contains your NIP or PESEL,
             with an RSA private key. Only RSA keys are currently supported.

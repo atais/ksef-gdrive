@@ -1,24 +1,57 @@
-import { HomeIcon, DocumentTextIcon, AdjustmentsHorizontalIcon, Cog6ToothIcon } from '@heroicons/react/24/outline'
+import { useEffect, useState } from 'react'
+import { ChevronRightIcon, ChevronDownIcon, FolderIcon } from '@heroicons/react/24/outline'
+import { listYearMonthTree, type YearFolder } from './gdrive/googleDriveService'
 
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
-  onNavigate?: (view: string) => void
-  currentView?: string
+  accessToken: string | null
+  ksefFolderId: string | null
+  selectedFolderId: string | null
+  onSelectFolder: (folderId: string) => void
 }
 
-export function Sidebar({ isOpen, onClose, onNavigate, currentView }: SidebarProps) {
-  const handleNavigate = (view: string) => {
-    onNavigate?.(view)
-    onClose()
+export function Sidebar({ isOpen, onClose, accessToken, ksefFolderId, selectedFolderId, onSelectFolder }: SidebarProps) {
+  const [years, setYears] = useState<YearFolder[]>([])
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!accessToken || !ksefFolderId) return
+
+    let cancelled = false
+    listYearMonthTree(accessToken, ksefFolderId)
+      .then((tree) => {
+        if (cancelled) return
+        setYears(tree)
+        setExpandedYears((prev) => (prev.size > 0 ? prev : new Set(tree.length > 0 ? [tree[0].id] : [])))
+      })
+      .catch((error) => console.error('Failed to load folder tree:', error))
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, ksefFolderId])
+
+  const toggleYear = (yearId: string) => {
+    setExpandedYears((prev) => {
+      const next = new Set(prev)
+      if (next.has(yearId)) {
+        next.delete(yearId)
+      } else {
+        next.add(yearId)
+      }
+      return next
+    })
   }
 
-  const navItemClass = (view: string) =>
-    `w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors font-medium text-sm ${
-      currentView === view
-        ? 'bg-blue-600 text-white'
-        : 'text-gray-700 hover:bg-gray-100'
-    }`
+  const handleSelectMonth = (monthId: string) => {
+    onSelectFolder(monthId)
+    onClose()
+  }
 
   return (
     <>
@@ -29,43 +62,58 @@ export function Sidebar({ isOpen, onClose, onNavigate, currentView }: SidebarPro
         />
       )}
       <aside
-        className={`fixed lg:static left-0 top-16 bottom-0 w-64 bg-white border-r border-gray-200 z-40 transform transition-transform duration-300 ${
+        className={`fixed lg:static left-0 top-16 bottom-0 w-64 bg-white border-r border-gray-200 z-40 transform transition-transform duration-300 overflow-y-auto ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        <nav className="p-4 space-y-1">
-          <button
-            onClick={() => handleNavigate('main')}
-            className={navItemClass('main')}
-            aria-current={currentView === 'main' ? 'page' : undefined}
-          >
-            <HomeIcon className="w-5 h-5" />
-            Dashboard
-          </button>
-          <button
-            onClick={() => handleNavigate('files')}
-            className={navItemClass('files')}
-            aria-current={currentView === 'files' ? 'page' : undefined}
-          >
-            <DocumentTextIcon className="w-5 h-5" />
-            Files
-          </button>
-          <button
-            onClick={() => handleNavigate('invoices')}
-            className={navItemClass('invoices')}
-            aria-current={currentView === 'invoices' ? 'page' : undefined}
-          >
-            <AdjustmentsHorizontalIcon className="w-5 h-5" />
-            Invoices
-          </button>
-          <button
-            onClick={() => handleNavigate('settings')}
-            className={navItemClass('settings')}
-            aria-current={currentView === 'settings' ? 'page' : undefined}
-          >
-            <Cog6ToothIcon className="w-5 h-5" />
-            Settings
-          </button>
+        <nav>
+          {loading && years.length === 0 ? (
+            <p className="text-sm text-gray-400 px-4 py-3">Loading folders...</p>
+          ) : years.length === 0 ? (
+            <p className="text-sm text-gray-400 px-4 py-3">No folders yet</p>
+          ) : (
+            <ul>
+              {years.map((year) => {
+                const expanded = expandedYears.has(year.id)
+                return (
+                  <li key={year.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggleYear(year.id)}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-50 transition-colors"
+                    >
+                      {expanded ? (
+                        <ChevronDownIcon className="w-4 h-4 flex-shrink-0" />
+                      ) : (
+                        <ChevronRightIcon className="w-4 h-4 flex-shrink-0" />
+                      )}
+                      <FolderIcon className="w-4 h-4 flex-shrink-0 text-blue-600" />
+                      <span>{year.name}</span>
+                    </button>
+                    {expanded && (
+                      <ul>
+                        {year.months.map((month) => (
+                          <li key={month.id}>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectMonth(month.id)}
+                              className={`w-full text-left pl-10 pr-4 py-2 text-sm transition-colors ${
+                                selectedFolderId === month.id
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              {month.name}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </nav>
       </aside>
     </>

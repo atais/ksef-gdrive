@@ -13,22 +13,10 @@ interface EnsureFolderResult {
 
 export async function ensureKsefFolder(accessToken: string): Promise<EnsureFolderResult> {
   try {
-    // Search for existing ksef-gdrive folder in root
-    const existing = await searchFolder(accessToken, FOLDER_NAME)
-
-    if (existing) {
-      return {
-        folderId: existing.id,
-        message: `Found existing 'ksef-gdrive' folder`,
-      }
-    }
-
-    // Create new folder
-    const created = await createFolder(accessToken, FOLDER_NAME)
-
+    const folder = await ensureFolder(accessToken, FOLDER_NAME)
     return {
-      folderId: created.id,
-      message: `Created new 'ksef-gdrive' folder`,
+      folderId: folder.id,
+      message: `Using 'ksef-gdrive' folder`,
     }
   } catch (error) {
     return {
@@ -38,28 +26,82 @@ export async function ensureKsefFolder(accessToken: string): Promise<EnsureFolde
   }
 }
 
-async function searchFolder(accessToken: string, folderName: string, parentId?: string): Promise<DriveFile | null> {
+// Returns ALL folders matching name+parent, oldest first, so callers can
+// detect and merge duplicates instead of picking one at random.
+async function searchFolders(accessToken: string, folderName: string, parentId?: string): Promise<DriveFile[]> {
   try {
     let query = `name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
     if (parentId) {
       query += ` and '${parentId}' in parents`
     }
     const encodedQuery = encodeURIComponent(query)
-    const response = await fetch(`${DRIVE_API}/files?q=${encodedQuery}&spaces=drive&fields=files(id,name)&pageSize=1`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    })
+    const response = await fetch(
+      `${DRIVE_API}/files?q=${encodedQuery}&spaces=drive&fields=files(id,name)&orderBy=createdTime&pageSize=100`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    )
 
     if (!response.ok) {
       throw new Error(`Drive API error: ${response.status}`)
     }
 
     const data = await response.json()
-    return data.files && data.files.length > 0 ? data.files[0] : null
+    return data.files || []
   } catch (error) {
     console.error('Search folder error:', error)
     throw error
+  }
+}
+
+async function listChildren(accessToken: string, parentId: string): Promise<DriveFile[]> {
+  const query = `'${parentId}' in parents and trashed=false`
+  const encodedQuery = encodeURIComponent(query)
+  const response = await fetch(`${DRIVE_API}/files?q=${encodedQuery}&spaces=drive&fields=files(id,name)&pageSize=1000`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Drive API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.files || []
+}
+
+async function moveFile(accessToken: string, fileId: string, fromParentId: string, toParentId: string): Promise<void> {
+  const response = await fetch(
+    `${DRIVE_API}/files/${fileId}?addParents=${toParentId}&removeParents=${fromParentId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(`Drive API error: ${response.status}`)
+  }
+}
+
+// Folds duplicate folders (same name+parent) into the oldest one: moves any
+// files out of each duplicate, then deletes the now-empty duplicate.
+async function mergeDuplicateFolders(accessToken: string, keepId: string, duplicates: DriveFile[]): Promise<void> {
+  for (const duplicate of duplicates) {
+    try {
+      const children = await listChildren(accessToken, duplicate.id)
+      for (const child of children) {
+        await moveFile(accessToken, child.id, duplicate.id, keepId)
+      }
+      await deleteFile(accessToken, duplicate.id)
+    } catch (error) {
+      console.error(`Failed to merge duplicate folder ${duplicate.id}:`, error)
+    }
   }
 }
 
@@ -129,12 +171,109 @@ export async function listDriveFiles(accessToken: string, folderId?: string): Pr
 }
 
 export async function ensureConfigFolder(accessToken: string, parentFolderId: string): Promise<string> {
-  const existing = await searchFolder(accessToken, '.config', parentFolderId)
-  if (existing) {
-    return existing.id
+  const folder = await ensureFolder(accessToken, '.config', parentFolderId)
+  return folder.id
+}
+
+// In-flight lock keyed by parent+name so concurrent callers (e.g. React
+// StrictMode double-invoking an effect) await the same search/create instead
+// of racing each other into creating duplicate folders.
+const ensureFolderLocks = new Map<string, Promise<DriveFile>>()
+
+async function ensureFolder(accessToken: string, name: string, parentId?: string): Promise<DriveFile> {
+  const key = `${parentId ?? 'root'}:${name}`
+  const inFlight = ensureFolderLocks.get(key)
+  if (inFlight) {
+    return inFlight
   }
-  const created = await createFolder(accessToken, '.config', parentFolderId)
-  return created.id
+
+  const promise = (async () => {
+    const matches = await searchFolders(accessToken, name, parentId)
+    if (matches.length > 0) {
+      const [keep, ...duplicates] = matches
+      if (duplicates.length > 0) {
+        await mergeDuplicateFolders(accessToken, keep.id, duplicates)
+      }
+      return keep
+    }
+    return createFolder(accessToken, name, parentId)
+  })()
+
+  ensureFolderLocks.set(key, promise)
+  try {
+    return await promise
+  } finally {
+    ensureFolderLocks.delete(key)
+  }
+}
+
+// Ensures <yyyy>/01.<yyyy> .. 12.<yyyy> all exist under ksef root for given
+// date's year (defaults to now).
+export async function ensureYearFolders(
+  accessToken: string,
+  ksefFolderId: string,
+  date: Date = new Date()
+): Promise<{ yearId: string; monthIds: string[] }> {
+  const year = String(date.getFullYear())
+  const yearFolder = await ensureFolder(accessToken, year, ksefFolderId)
+
+  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'))
+  const monthFolders = await Promise.all(
+    months.map((month) => ensureFolder(accessToken, `${month}.${year}`, yearFolder.id))
+  )
+
+  return { yearId: yearFolder.id, monthIds: monthFolders.map((f) => f.id) }
+}
+
+export interface MonthFolder {
+  id: string
+  name: string
+}
+
+export interface YearFolder {
+  id: string
+  name: string
+  months: MonthFolder[]
+}
+
+async function listSubfolders(accessToken: string, parentId: string): Promise<DriveFile[]> {
+  const query = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+  const encodedQuery = encodeURIComponent(query)
+  const response = await fetch(`${DRIVE_API}/files?q=${encodedQuery}&spaces=drive&fields=files(id,name)&pageSize=1000`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Drive API error: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.files || []
+}
+
+const YEAR_PATTERN = /^\d{4}$/
+const MONTH_PATTERN = /^(\d{2})\.(\d{4})$/
+
+// Builds the year/month folder tree for the sidebar, e.g.
+// 2026/01.2026 .. 2026/12.2026. Years sorted descending, months ascending.
+export async function listYearMonthTree(accessToken: string, ksefFolderId: string): Promise<YearFolder[]> {
+  const topFolders = await listSubfolders(accessToken, ksefFolderId)
+  const yearFolders = topFolders.filter((f) => YEAR_PATTERN.test(f.name))
+
+  const years = await Promise.all(
+    yearFolders.map(async (yearFolder) => {
+      const monthFolders = await listSubfolders(accessToken, yearFolder.id)
+      const months = monthFolders
+        .filter((f) => MONTH_PATTERN.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      return { id: yearFolder.id, name: yearFolder.name, months }
+    })
+  )
+
+  return years.sort((a, b) => b.name.localeCompare(a.name))
 }
 
 export async function saveJsonToConfig(

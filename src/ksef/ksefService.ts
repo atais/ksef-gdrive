@@ -463,39 +463,3 @@ export async function downloadInvoiceXml(sessionToken: string, ksefNumber: strin
 
   return await response.text()
 }
-
-export interface KsefEntityRole {
-  role: string
-  description: string
-  startDate: string
-}
-
-interface EntityRolesResponse {
-  roles: KsefEntityRole[]
-  hasMore: boolean
-}
-
-export async function queryEntityRoles(
-  sessionToken: string,
-  pageSize: number = 10
-): Promise<EntityRolesResponse> {
-  const response = await fetch(
-    `${KSEF_API}/permissions/query/entities/roles?pageOffset=0&pageSize=${pageSize}`,
-    {
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-      },
-    }
-  )
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`KSEF query failed: ${response.status} - ${error}`)
-  }
-
-  const data = await response.json()
-  return {
-    roles: data.roles || [],
-    hasMore: data.hasMore || false,
-  }
-}

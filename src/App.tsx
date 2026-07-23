@@ -5,7 +5,6 @@ import { ArrowPathIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { KsefCredentialsForm } from './KsefCredentialsForm'
-import { EntityRolesStatus } from './EntityRolesStatus'
 import { Invoices } from './Invoices'
 import {
   ensureKsefFolder,
@@ -13,9 +12,10 @@ import {
   ensureConfigFolder,
   saveJsonToConfig,
   fetchJsonFromConfig,
-  deleteJsonFromConfig
+  deleteJsonFromConfig,
+  ensureYearFolders
 } from './gdrive/googleDriveService'
-import { authenticateWithKsef, queryEntityRoles, type KsefCredentials, type KsefEntityRole } from './ksef/ksefService'
+import { authenticateWithKsef, type KsefCredentials } from './ksef/ksefService'
 
 interface StoredSession {
   accessToken: string
@@ -35,10 +35,21 @@ function AppContent() {
   const [saving, setSaving] = useState(false)
   const [restoring, setRestoring] = useState(true)
   const [ksefSessionToken, setKsefSessionToken] = useState<string | null>(null)
-  const [entityRoles, setEntityRoles] = useState<KsefEntityRole[]>([])
-  const [loadingRoles, setLoadingRoles] = useState(false)
-  const [currentView, setCurrentView] = useState<'main' | 'settings' | 'invoices' | 'files'>('main')
+  const [currentView, setCurrentView] = useState<'settings' | 'invoices' | 'files'>('invoices')
   const [ksefFolderId, setKsefFolderId] = useState<string | null>(null)
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const [driveSyncCount, setDriveSyncCount] = useState(0)
+
+  // Runs a Drive task in the background without blocking the caller, while
+  // tracking it so the navbar can show a "syncing" indicator. Used for work
+  // (like ensuring all 12 month folders exist) that shouldn't stall the rest
+  // of app init/login.
+  const runInBackground = useCallback((task: () => Promise<unknown>) => {
+    setDriveSyncCount((c) => c + 1)
+    task()
+      .catch((error) => console.error('Background Drive sync failed:', error))
+      .finally(() => setDriveSyncCount((c) => c - 1))
+  }, [])
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -67,6 +78,11 @@ function AppContent() {
           const folderResult = await ensureKsefFolder(session.accessToken)
           setKsefFolderId(folderResult.folderId)
 
+          if (folderResult.folderId) {
+            const folderId = folderResult.folderId
+            runInBackground(() => ensureYearFolders(session.accessToken, folderId))
+          }
+
         } else {
           localStorage.removeItem('gdrive_session')
         }
@@ -79,7 +95,7 @@ function AppContent() {
     }
 
     restoreSession()
-  }, [])
+  }, [runInBackground])
 
   const saveSession = (
     token: string,
@@ -117,6 +133,11 @@ function AppContent() {
         setKsefFolderId(result.folderId)
 
         if (result.folderId) {
+          // Ensure all 12 month folders exist, without blocking the rest of
+          // init on 12 sequential Drive round-trips.
+          const folderId = result.folderId
+          runInBackground(() => ensureYearFolders(codeResponse.access_token, folderId))
+
           // Ensure .config folder exists
           const configId = await ensureConfigFolder(codeResponse.access_token, result.folderId)
           setConfigFolderId(configId)
@@ -143,18 +164,37 @@ function AppContent() {
     flow: 'implicit',
   })
 
-  const refreshFiles = async () => {
+  const refreshFiles = useCallback(async () => {
     if (!accessToken) return
     setLoading(true)
     try {
-      const filesList = await listDriveFiles(accessToken)
+      const filesList = await listDriveFiles(accessToken, selectedFolderId ?? ksefFolderId ?? undefined)
       setFiles(filesList)
     } catch (error) {
       console.error('Failed to refresh files:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [accessToken, selectedFolderId, ksefFolderId])
+
+  useEffect(() => {
+    if (currentView !== 'files' || !selectedFolderId || !accessToken) return
+
+    let cancelled = false
+    listDriveFiles(accessToken, selectedFolderId)
+      .then((filesList) => {
+        if (!cancelled) setFiles(filesList)
+      })
+      .catch((error) => console.error('Failed to refresh files:', error))
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFolderId])
 
   const handleLogout = () => {
     localStorage.removeItem('gdrive_session')
@@ -180,10 +220,10 @@ function AppContent() {
       saveSession(accessToken, user, configFolderId, credentials)
       
       // Auth with KSEF immediately
-      await authenticateAndFetchRoles(credentials)
+      await authenticateKsefSession(credentials)
       
-      // Go back to main view
-      setCurrentView('main')
+      // Go back to invoices view
+      setCurrentView('invoices')
     } catch (error) {
       console.error('Save credentials failed:', error)
       throw error
@@ -192,25 +232,21 @@ function AppContent() {
     }
   }
 
-  const authenticateAndFetchRoles = useCallback(async (credentials: KsefCredentials) => {
+  const authenticateKsefSession = useCallback(async (credentials: KsefCredentials) => {
     try {
-      setLoadingRoles(true)
       const authResponse = await authenticateWithKsef(credentials)
       setKsefSessionToken(authResponse.accessToken.token)
-      
-      const result = await queryEntityRoles(authResponse.accessToken.token)
-      setEntityRoles(result.roles)
     } catch (error) {
-      console.error('KSEF auth/fetch failed:', error)
-      
+      console.error('KSEF auth failed:', error)
+
       const errorMessage = error instanceof Error ? error.message : String(error)
-      
+
       // Check if it's a permission error
       if (errorMessage.includes('403') && errorMessage.includes('missing-permissions')) {
         // Don't delete credentials - user needs to update permissions
       } else if (errorMessage.includes('401') || errorMessage.includes('KSEF auth failed')) {
         // Authentication failed - invalid credentials
-        
+
         // Delete invalid credentials from GDrive
         if (accessToken && configFolderId) {
           try {
@@ -219,40 +255,24 @@ function AppContent() {
             console.error('Failed to delete credentials:', deleteError)
           }
         }
-        
+
         // Clear local state
         setKsefCredentials(null)
         setKsefSessionToken(null)
-        setEntityRoles([])
-        
+
         // Update stored session
         if (user && accessToken && configFolderId) {
           saveSession(accessToken, user, configFolderId, null)
         }
       }
-    } finally {
-      setLoadingRoles(false)
     }
   }, [accessToken, configFolderId, user])
 
-  const refreshRoles = async () => {
-    if (!ksefSessionToken) return
-    setLoadingRoles(true)
-    try {
-      const result = await queryEntityRoles(ksefSessionToken)
-      setEntityRoles(result.roles)
-    } catch (error) {
-      console.error('Refresh roles failed:', error)
-    } finally {
-      setLoadingRoles(false)
-    }
-  }
-
   useEffect(() => {
     if (ksefCredentials && !ksefSessionToken) {
-      authenticateAndFetchRoles(ksefCredentials)
+      authenticateKsefSession(ksefCredentials)
     }
-  }, [ksefCredentials, ksefSessionToken, authenticateAndFetchRoles])
+  }, [ksefCredentials, ksefSessionToken, authenticateKsefSession])
 
   return (
     <div className="w-full min-h-screen flex flex-col bg-white">
@@ -262,19 +282,27 @@ function AppContent() {
           onLogout={handleLogout}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           isConnected={!!(ksefCredentials && ksefSessionToken)}
+          driveSyncing={driveSyncCount > 0}
+          currentView={currentView}
+          onNavigate={(view) => setCurrentView(view as 'settings' | 'invoices' | 'files')}
         />
       )}
       <div className="flex flex-1">
         {user && (
-          <Sidebar 
-            isOpen={sidebarOpen} 
+          <Sidebar
+            isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
-            onNavigate={(view) => setCurrentView(view as 'main' | 'settings' | 'invoices' | 'files')}
-            currentView={currentView}
+            accessToken={accessToken}
+            ksefFolderId={ksefFolderId}
+            selectedFolderId={selectedFolderId}
+            onSelectFolder={(folderId) => {
+              setSelectedFolderId(folderId)
+              setCurrentView('files')
+            }}
           />
         )}
-        <main className="flex-1 overflow-auto">
-          <div className="max-w-6xl mx-auto w-full">
+        <main className="flex-1 overflow-auto bg-white">
+          <div className="w-full">
             {restoring ? (
               <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
                 <div className="text-center">
@@ -310,7 +338,7 @@ function AppContent() {
               </div>
             ) : currentView === 'settings' ? (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
-                <div className="max-w-2xl mx-auto">
+                <div>
                   <KsefCredentialsForm
                     currentCredentials={ksefCredentials}
                     onSave={handleSaveKsefCredentials}
@@ -319,23 +347,11 @@ function AppContent() {
                 </div>
               </div>
             ) : !ksefCredentials ? (
-              <div className="max-w-2xl mx-auto p-4 sm:p-8">
+              <div className="p-4 sm:p-8">
                 <KsefCredentialsForm
                   onSave={handleSaveKsefCredentials}
                   saving={saving}
                 />
-              </div>
-            ) : currentView === 'invoices' ? (
-              <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
-                {ksefSessionToken ? (
-                  <Invoices
-                    sessionToken={ksefSessionToken}
-                    accessToken={accessToken}
-                    driveFolderId={ksefFolderId}
-                  />
-                ) : (
-                  <p className="text-gray-600">Connecting to KSEF...</p>
-                )}
               </div>
             ) : currentView === 'files' ? (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
@@ -395,11 +411,15 @@ function AppContent() {
             ) : (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
                 <div className="space-y-6">
-                  <EntityRolesStatus
-                    roles={entityRoles}
-                    loading={loadingRoles}
-                    onRefresh={refreshRoles}
-                  />
+                  {ksefSessionToken ? (
+                    <Invoices
+                      sessionToken={ksefSessionToken}
+                      accessToken={accessToken}
+                      driveFolderId={ksefFolderId}
+                    />
+                  ) : (
+                    <p className="text-gray-600">Connecting to KSEF...</p>
+                  )}
                 </div>
               </div>
             )}

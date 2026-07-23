@@ -3,8 +3,7 @@ import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google'
 import axios from 'axios'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
-import { KsefSetup } from './KsefSetup'
-import { Settings } from './Settings'
+import { KsefCredentialsForm } from './KsefCredentialsForm'
 import { EntityRolesStatus } from './EntityRolesStatus'
 import { Invoices } from './Invoices'
 import { 
@@ -332,13 +331,22 @@ function AppContent() {
                 </div>
               </div>
             ) : currentView === 'settings' ? (
-              <Settings
-                currentCredentials={ksefCredentials}
-                onSave={handleSaveKsefCredentials}
-                saving={saving}
-              />
+              <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
+                <div className="max-w-2xl mx-auto">
+                  <KsefCredentialsForm
+                    currentCredentials={ksefCredentials}
+                    onSave={handleSaveKsefCredentials}
+                    saving={saving}
+                  />
+                </div>
+              </div>
             ) : !ksefCredentials ? (
-              <KsefSetup onSave={handleSaveKsefCredentials} saving={saving} />
+              <div className="max-w-2xl mx-auto p-4 sm:p-8">
+                <KsefCredentialsForm
+                  onSave={handleSaveKsefCredentials}
+                  saving={saving}
+                />
+              </div>
             ) : currentView === 'invoices' ? (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
                 {ksefSessionToken ? (

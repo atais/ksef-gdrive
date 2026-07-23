@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { GoogleOAuthProvider, useGoogleLogin } from '@react-oauth/google'
 import axios from 'axios'
+import { ArrowPathIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import { KsefCredentialsForm } from './KsefCredentialsForm'
 import { EntityRolesStatus } from './EntityRolesStatus'
 import { Invoices } from './Invoices'
-import { 
-  ensureKsefFolder, 
-  listDriveFiles, 
+import {
+  ensureKsefFolder,
+  listDriveFiles,
   ensureConfigFolder,
   saveJsonToConfig,
   fetchJsonFromConfig,
@@ -26,7 +27,6 @@ interface StoredSession {
 function AppContent() {
   const [user, setUser] = useState<{ email: string; name: string } | null>(null)
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  const [folderStatus, setFolderStatus] = useState<string>('')
   const [files, setFiles] = useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -67,11 +67,6 @@ function AppContent() {
           const folderResult = await ensureKsefFolder(session.accessToken)
           setKsefFolderId(folderResult.folderId)
 
-          if (session.ksefCredentials) {
-            setFolderStatus('Connected to Google Drive & KSEF')
-          } else {
-            setFolderStatus('Connected to Google Drive - Configure KSEF')
-          }
         } else {
           localStorage.removeItem('gdrive_session')
         }
@@ -104,7 +99,6 @@ function AppContent() {
   const login = useGoogleLogin({
     onSuccess: async (codeResponse) => {
       try {
-        setFolderStatus('Logging in...')
         setAccessToken(codeResponse.access_token)
 
         // Get user info
@@ -120,7 +114,6 @@ function AppContent() {
 
         // Initialize ksef-gdrive folder
         const result = await ensureKsefFolder(codeResponse.access_token)
-        setFolderStatus(result.message)
         setKsefFolderId(result.folderId)
 
         if (result.folderId) {
@@ -135,12 +128,6 @@ function AppContent() {
             'ksef_credentials.json'
           )
           setKsefCredentials(credentials)
-          
-          if (credentials) {
-            setFolderStatus('Connected to Google Drive & KSEF')
-          } else {
-            setFolderStatus('Connected to Google Drive - Configure KSEF')
-          }
 
           // Save session to localStorage
           saveSession(codeResponse.access_token, userData, configId, credentials)
@@ -150,7 +137,6 @@ function AppContent() {
         }
       } catch (error) {
         console.error('Login/init failed:', error)
-        setFolderStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
     },
     scope: 'https://www.googleapis.com/auth/drive.file',
@@ -175,7 +161,6 @@ function AppContent() {
     setUser(null)
     setAccessToken(null)
     setFiles([])
-    setFolderStatus('')
     setConfigFolderId(null)
     setKsefCredentials(null)
     setKsefFolderId(null)
@@ -190,8 +175,7 @@ function AppContent() {
     try {
       await saveJsonToConfig(accessToken, configFolderId, 'ksef_credentials.json', credentials)
       setKsefCredentials(credentials)
-      setFolderStatus('KSEF credentials saved successfully')
-      
+
       // Update stored session
       saveSession(accessToken, user, configFolderId, credentials)
       
@@ -216,7 +200,6 @@ function AppContent() {
       
       const result = await queryEntityRoles(authResponse.accessToken.token)
       setEntityRoles(result.roles)
-      setFolderStatus('Connected to Google Drive & KSEF')
     } catch (error) {
       console.error('KSEF auth/fetch failed:', error)
       
@@ -224,11 +207,9 @@ function AppContent() {
       
       // Check if it's a permission error
       if (errorMessage.includes('403') && errorMessage.includes('missing-permissions')) {
-        setFolderStatus('KSEF credentials missing required permission')
         // Don't delete credentials - user needs to update permissions
       } else if (errorMessage.includes('401') || errorMessage.includes('KSEF auth failed')) {
         // Authentication failed - invalid credentials
-        setFolderStatus('KSEF authentication failed - credentials removed')
         
         // Delete invalid credentials from GDrive
         if (accessToken && configFolderId) {
@@ -248,8 +229,6 @@ function AppContent() {
         if (user && accessToken && configFolderId) {
           saveSession(accessToken, user, configFolderId, null)
         }
-      } else {
-        setFolderStatus('KSEF connection error - check configuration')
       }
     } finally {
       setLoadingRoles(false)
@@ -282,6 +261,7 @@ function AppContent() {
           user={user}
           onLogout={handleLogout}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          isConnected={!!(ksefCredentials && ksefSessionToken)}
         />
       )}
       <div className="flex flex-1">
@@ -298,9 +278,7 @@ function AppContent() {
             {restoring ? (
               <div className="min-h-[calc(100vh-64px)] flex items-center justify-center">
                 <div className="text-center">
-                  <svg className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
+                  <ArrowPathIcon className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
                   <p className="text-gray-600">Restoring session...</p>
                 </div>
               </div>
@@ -372,16 +350,12 @@ function AppContent() {
                     >
                       {loading ? (
                         <>
-                          <svg className="w-5 h-5 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
+                          <ArrowPathIcon className="w-5 h-5 mr-2 animate-spin" />
                           Loading...
                         </>
                       ) : (
                         <>
-                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
+                          <ArrowPathIcon className="w-5 h-5 mr-2" />
                           Refresh Files
                         </>
                       )}
@@ -399,9 +373,7 @@ function AppContent() {
                             key={file.id}
                             className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-400 transition-all hover:shadow-md"
                           >
-                            <svg className="w-6 h-6 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
+                            <DocumentTextIcon className="w-6 h-6 text-blue-600 flex-shrink-0" />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-gray-900 truncate">
                                 {file.name}
@@ -413,9 +385,7 @@ function AppContent() {
                     </div>
                   ) : (
                     <div className="text-center py-12">
-                      <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
+                      <DocumentTextIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                       <p className="text-gray-600 font-medium">No files yet</p>
                       <p className="text-gray-500 text-sm">Click "Refresh Files" to load files from your Google Drive</p>
                     </div>
@@ -425,19 +395,7 @@ function AppContent() {
             ) : (
               <div className="min-h-[calc(100vh-64px)] p-4 sm:p-8">
                 <div className="space-y-6">
-                  {/* Status Card */}
-                  <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-xl border border-blue-200 p-8">
-                    <p className="text-sm font-semibold text-blue-600 mb-2">STATUS</p>
-                    <h2 className="text-3xl font-bold text-gray-900">
-                      {folderStatus || 'All systems ready'}
-                    </h2>
-                    <p className="text-sm text-gray-600 mt-2">
-                      KSEF NIP: {ksefCredentials.nip}
-                    </p>
-                  </div>
-
-                  {/* KSEF Entity Roles Section */}
-                  <EntityRolesStatus 
+                  <EntityRolesStatus
                     roles={entityRoles}
                     loading={loadingRoles}
                     onRefresh={refreshRoles}

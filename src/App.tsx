@@ -291,6 +291,7 @@ function AppContent() {
             isOpen={sidebarOpen} 
             onClose={() => setSidebarOpen(false)}
             onNavigate={(view) => setCurrentView(view as 'main' | 'settings' | 'invoices' | 'files')}
+            currentView={currentView}
           />
         )}
         <main className="flex-1 overflow-auto">
